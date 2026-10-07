@@ -24,7 +24,11 @@
       <main class="stage" id="stage">
         <canvas id="screen" aria-label="Zeno game"></canvas>
         <div id="toast" class="toast" aria-live="polite"></div>
-        <div id="overlay" class="overlay"></div>
+        <div class="zones" aria-hidden="true">
+          <span class="zone zone-duck">Hold to duck</span>
+          <span class="zone zone-jump">Tap to jump</span>
+        </div>
+        <div id="overlay" class="overlay" aria-live="polite"></div>
       </main>
 
       <footer class="bottom">

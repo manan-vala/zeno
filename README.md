@@ -14,8 +14,8 @@ npm run dev      # http://localhost:5173
 
 | Action | Keyboard | Touch |
 |---|---|---|
-| Jump (hold for higher) | `Space` / `↑` / `W` | Tap |
-| Duck (fast-fall in the air) | `↓` / `S` | Swipe down and hold |
+| Jump (hold for higher) | `Space` / `↑` / `W` | Tap anywhere else |
+| Duck (fast-fall in the air) | `↓` / `S` | Hold the left third of the game |
 | Pause | `P` / `Esc` | |
 | Mute | `M` or the Sound button | Sound button |
 
@@ -43,7 +43,8 @@ npm run dev      # http://localhost:5173
 | `npm run dev` | Dev server with hot reload |
 | `npm run build` | Type-check and build a static site into `dist/` |
 | `npm run preview` | Serve the production build |
-| `npm test` | Unit tests (Vitest) |
+| `npm test` | Unit and simulation tests (Vitest) |
+| `npm run test:e2e` | Browser tests (Playwright, desktop and mobile Chromium) |
 | `npm run cf:dev` | Build and serve locally through Cloudflare's runtime |
 | `npm run deploy` | Build and deploy to Cloudflare Workers |
 
@@ -70,6 +71,22 @@ Other deploy files:
 - `public/_headers`: long-lived caching for fingerprinted `/assets/*`, plus
   security headers (CSP, `X-Frame-Options`, and others).
 - `public/404.html`: served with a 404 status for unknown paths.
+
+## Tests
+
+- **Unit tests** cover the score maths, collisions, and the game simulation
+  itself, which runs headless in Node with stubbed sprites, audio and a seeded
+  random generator (`src/testing/harness.ts`). That covers jumping, ducking,
+  every obstacle height, seeds, pausing and restarts.
+- **Fairness:** an autopilot that only reacts to what's on screen plays
+  10 simulated minutes on several seeds. If it ever dies, a spawn pattern is
+  unfair.
+- **Browser tests** (`e2e/`) run the production build in desktop and mobile
+  Chromium. They check loading, controls, pause, crash and restart, saved
+  best and mute, touch zones, and that the game fits common screen sizes.
+
+First time running the browser tests: `npx playwright install chromium`.
+Add `?debug` to the URL to expose the game as `window.zeno` in the console.
 
 ## Project layout
 

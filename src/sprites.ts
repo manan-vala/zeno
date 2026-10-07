@@ -2,6 +2,13 @@ import { PixelGrid } from './pixels';
 
 export type Sprite = HTMLCanvasElement;
 
+/** Turns a painted grid into something drawable. Tests swap this for a stub. */
+export type Bake = (grid: PixelGrid) => Sprite;
+
+const toCanvas: Bake = (grid) => grid.toCanvas();
+// Set for the duration of buildSprites().
+let bake: Bake = toCanvas;
+
 // ---------------------------------------------------------------------------
 // Achilles: a hoplite in a crested Corinthian helmet, round shield and spear,
 // facing right. Upper body is shared; legs change per pose.
@@ -52,7 +59,7 @@ function achilles(legA: Leg, legB: Leg): Sprite {
   const g = new PixelGrid(ACHILLES_W, ACHILLES_H);
   upperBody(g, 0, 0);
   legs(g, 0, 0, legA, legB);
-  return g.toCanvas();
+  return bake(g);
 }
 
 function achillesDuck(): Sprite {
@@ -66,7 +73,7 @@ function achillesDuck(): Sprite {
   g.ring(15, oy + 9, 3.4, 'o');
   g.rect(14, oy + 8, 2, 2, 'w');
   legs(g, 0, 0, [11, 19, 15, 20, 13, 22], [10, 19, 7, 21, 4, 22]);
-  return g.toCanvas();
+  return bake(g);
 }
 
 function achillesFallen(): Sprite {
@@ -81,7 +88,7 @@ function achillesFallen(): Sprite {
       if (c) out.set(y, ACHILLES_W - 1 - x, c);
     }
   }
-  return out.toCanvas();
+  return bake(out);
 }
 
 // ---------------------------------------------------------------------------
@@ -103,7 +110,7 @@ function tortoise(step: number): Sprite {
   g.rows(TORTOISE_SHELL);
   const legRows = step === 0 ? ['..kk......kk......', '..kk......kk......'] : ['....kk......kk....', '...kk......kk.....'];
   g.rows(legRows, 0, 7);
-  return g.toCanvas();
+  return bake(g);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,14 +137,14 @@ const AMPHORA = [
 ];
 
 function amphora(): Sprite {
-  return new PixelGrid(10, 16).rows(AMPHORA).toCanvas();
+  return bake(new PixelGrid(10, 16).rows(AMPHORA));
 }
 
 function amphoraPair(): Sprite {
   const g = new PixelGrid(22, 16);
   g.rows(AMPHORA, 0, 0);
   g.rows(AMPHORA, 12, 0);
-  return g.toCanvas();
+  return bake(g);
 }
 
 function column(w: number, h: number, broken: boolean): Sprite {
@@ -162,7 +169,7 @@ function column(w: number, h: number, broken: boolean): Sprite {
     }
     for (let x = 1; x < w - 1; x++) g.set(x, shaftTop + jag[x % jag.length], 'k');
   }
-  return g.toCanvas();
+  return bake(g);
 }
 
 const OWL_UP = [
@@ -192,7 +199,7 @@ const OWL_DOWN = [
 ];
 
 function owl(up: boolean): Sprite {
-  return new PixelGrid(14, 10).rows(up ? OWL_UP : OWL_DOWN).toCanvas();
+  return bake(new PixelGrid(14, 10).rows(up ? OWL_UP : OWL_DOWN));
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +216,7 @@ function temple(): Sprite {
   // Steps.
   g.rect(0, 23, 40, 1, 'd');
   g.rect(-1, 24, 42, 2, 'd');
-  return g.toCanvas();
+  return bake(g);
 }
 
 function oliveTree(seed: number): Sprite {
@@ -230,7 +237,7 @@ function oliveTree(seed: number): Sprite {
     const a = (i / 12) * Math.PI * 2 + seed;
     g.set(11 + Math.cos(a) * 9, 9 + Math.sin(a) * 6, 'd');
   }
-  return g.toCanvas();
+  return bake(g);
 }
 
 function cypress(): Sprite {
@@ -240,7 +247,7 @@ function cypress(): Sprite {
     g.rect(Math.round(4 - half), y, Math.max(1, Math.round(half * 2)), 1, 'd');
   }
   g.rect(3, 26, 2, 2, 'd');
-  return g.toCanvas();
+  return bake(g);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +268,8 @@ export interface SpriteSheet {
   cypress: Sprite;
 }
 
-export function buildSprites(): SpriteSheet {
+export function buildSprites(bakeWith: Bake = toCanvas): SpriteSheet {
+  bake = bakeWith;
   return {
     run: [
       achilles([10, 17, 7, 20, 3, 22], [11, 17, 14, 20, 16, 22]),

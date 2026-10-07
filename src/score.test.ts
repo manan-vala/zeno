@@ -39,3 +39,11 @@ describe('score', () => {
     for (let s = 0; s < 100; s++) expect(tauntFor(s)).toBeTruthy();
   });
 });
+
+describe('very long runs', () => {
+  it.each([53, 54, 60, 200, 2000])('never shows 1 or more after %i halvings', (stage) => {
+    const text = formatGapDecimal(STAGE_LENGTH * stage + 1);
+    expect(text.startsWith('0.')).toBe(true);
+    expect(Number(text)).toBeLessThan(1);
+  });
+});

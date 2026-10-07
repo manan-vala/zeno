@@ -47,6 +47,9 @@ export function formatGapDecimal(distance: number): string {
   const value = gapClosed(distance);
   const factor = 10 ** digits;
   const truncated = Math.floor(value * factor) / factor;
+  // Past ~2⁻⁵³ the gap is too small for a double, so 1 − gap rounds to exactly 1.
+  // The tortoise is still ahead; show as many nines as we have digits.
+  if (truncated >= 1) return `0.${'9'.repeat(digits)}`;
   return truncated.toFixed(digits);
 }
 
