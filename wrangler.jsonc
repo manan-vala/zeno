@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Static-assets-only Worker: Cloudflare serves the Vite build in ./dist directly.
+  // No Worker script runs, so asset requests are free and unlimited on the Free plan.
+  "name": "zeno",
+  "compatibility_date": "2026-10-07",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths get dist/404.html with a 404 status.
+    "not_found_handling": "404-page"
+  },
+  // Keep the free *.workers.dev URL available alongside a custom domain.
+  "workers_dev": true
+
+  // To serve the game on your own domain (DNS on Cloudflare), uncomment and set
+  // the hostname. Cloudflare creates the DNS record and certificate on deploy.
+  // "routes": [{ "pattern": "zeno.example.com", "custom_domain": true }]
+}
