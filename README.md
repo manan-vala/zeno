@@ -44,9 +44,34 @@ npm run dev      # http://localhost:5173
 | `npm run build` | Type-check and build a static site into `dist/` |
 | `npm run preview` | Serve the production build |
 | `npm test` | Unit tests (Vitest) |
+| `npm run cf:dev` | Build and serve locally through Cloudflare's runtime |
+| `npm run deploy` | Build and deploy to Cloudflare Workers |
 
-The build is fully static with relative paths, so `dist/` can be hosted on
-GitHub Pages, Netlify, Vercel or any static host.
+## Deploy to Cloudflare
+
+The game is deployed as a **static-assets-only Worker** (`wrangler.jsonc`).
+Cloudflare serves the files in `dist/` straight from its edge and no Worker code
+runs, so asset requests are free and unlimited on the Free plan.
+
+```bash
+npx wrangler login   # once per machine
+npm run deploy       # builds, then uploads dist/ to the "zeno" Worker
+```
+
+The first deploy prints a `https://zeno.<your-subdomain>.workers.dev` URL.
+
+**Custom domain** (zone on Cloudflare): uncomment the `routes` entry in
+`wrangler.jsonc`, set your hostname (e.g. `zeno.example.com` or the apex
+`example.com`), and deploy again. Cloudflare creates the DNS record and TLS
+certificate itself. Remove any existing DNS record for that hostname first.
+You can also add the domain in the dashboard: Workers & Pages → zeno →
+Settings → Domains & Routes → Add → Custom domain.
+
+Other deploy files:
+
+- `public/_headers`: long-lived caching for fingerprinted `/assets/*`, plus
+  security headers (CSP, `X-Frame-Options`, and others).
+- `public/404.html`: served with a 404 status for unknown paths.
 
 ## Project layout
 
