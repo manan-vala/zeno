@@ -45,6 +45,35 @@ export interface GameEvents {
   onGameOver(result: { distance: number; seeds: number; best: number; previousBest: number }): void;
 }
 
+/** The slice of the audio engine the game drives; tests pass a stub. */
+export type GameAudio = Pick<
+  AudioEngine,
+  | 'unlock'
+  | 'jump'
+  | 'land'
+  | 'duck'
+  | 'seed'
+  | 'halve'
+  | 'hit'
+  | 'gameOver'
+  | 'start'
+  | 'startMusic'
+  | 'stopMusic'
+  | 'setIntensity'
+  | 'suspend'
+  | 'resume'
+>;
+
+export interface GameOptions {
+  audio: GameAudio;
+  events: GameEvents;
+  best: number;
+  /** Pre-built sprites; defaults to baking them onto canvases. */
+  sprites?: SpriteSheet;
+  /** Random source in [0, 1); injectable so tests are deterministic. */
+  random?: () => number;
+}
+
 const STEP = 1 / 120;
 const TITLE_SPEED = 70;
 
@@ -55,7 +84,10 @@ export class Game {
   seeds = 0;
 
   private sprites: SpriteSheet;
-  private background: Background;
+  private background: Background | null = null;
+  private audio: GameAudio;
+  private events: GameEvents;
+  private random: () => number;
   private scroll = 0;
   private time = 0;
   private speed = SPEED.start;
@@ -82,14 +114,12 @@ export class Game {
   private overAt = 0;
   private accumulator = 0;
 
-  constructor(
-    private audio: AudioEngine,
-    private events: GameEvents,
-    best: number,
-  ) {
-    this.best = best;
-    this.sprites = buildSprites();
-    this.background = new Background(this.sprites);
+  constructor(options: GameOptions) {
+    this.audio = options.audio;
+    this.events = options.events;
+    this.best = options.best;
+    this.random = options.random ?? Math.random;
+    this.sprites = options.sprites ?? buildSprites();
   }
 
   // -- Input ----------------------------------------------------------------
@@ -176,13 +206,13 @@ export class Game {
       this.particles.push({
         x: PLAYER_X + 12,
         y: this.y + 12,
-        vx: (Math.random() - 0.3) * 160,
-        vy: -60 - Math.random() * 140,
+        vx: (this.random() - 0.3) * 160,
+        vy: -60 - this.random() * 140,
         gravity: 520,
         life: 1.2,
         maxLife: 1.2,
-        size: Math.random() < 0.4 ? 2 : 1,
-        color: Math.random() < 0.8 ? COLORS.ink : COLORS.white,
+        size: this.random() < 0.4 ? 2 : 1,
+        color: this.random() < 0.8 ? COLORS.ink : COLORS.white,
       });
     }
     const previousBest = this.best;
@@ -263,8 +293,8 @@ export class Game {
         this.particles.push({
           x: PLAYER_X + 6,
           y: GROUND_Y - 1,
-          vx: -this.speed * 0.25 - Math.random() * 20,
-          vy: -10 - Math.random() * 25,
+          vx: -this.speed * 0.25 - this.random() * 20,
+          vy: -10 - this.random() * 25,
           gravity: 60,
           life: 0.35,
           maxLife: 0.35,
@@ -320,7 +350,7 @@ export class Game {
     const pool: ObstacleKind[] = ['amphora', 'amphora', 'columnBroken'];
     if (this.stage >= 1) pool.push('amphoraPair', 'columnTall');
     if (this.stage >= 2) pool.push('owl', 'owl');
-    const kind = pool[Math.floor(Math.random() * pool.length)];
+    const kind = pool[Math.floor(this.random() * pool.length)];
 
     const sprite = this.spriteFor(kind, 0);
     const o: Obstacle = {
@@ -330,23 +360,23 @@ export class Game {
       w: sprite.width,
       h: sprite.height,
       vx: 0,
-      phase: Math.random() * 6,
+      phase: this.random() * 6,
     };
     if (kind === 'owl') {
       // Low owls must be jumped, middle ones ducked under, high ones ignored.
       const bottoms = [4, 17, 32];
-      const bottom = bottoms[Math.floor(Math.random() * bottoms.length)];
+      const bottom = bottoms[Math.floor(this.random() * bottoms.length)];
       o.y = GROUND_Y - bottom - o.h;
       o.vx = 25;
     }
     this.obstacles.push(o);
 
     const minGap = this.speed * 0.7 + 64;
-    const gap = minGap * (1 + Math.random() * 0.8);
+    const gap = minGap * (1 + this.random() * 0.8);
     this.untilNextObstacle = gap;
 
     // Seeds: an arc over the obstacle, or a line on the ground after it.
-    const r = Math.random();
+    const r = this.random();
     if (r < 0.35 && kind !== 'owl') {
       const apex = o.h + 16;
       for (let i = -2; i <= 2; i++) {
@@ -354,7 +384,7 @@ export class Game {
         this.seedsOnField.push({
           x: o.x + o.w / 2 + i * 13,
           y: GROUND_Y - 10 - apex * (1 - t * t),
-          phase: Math.random() * 6,
+          phase: this.random() * 6,
         });
       }
     } else if (r < 0.6) {
@@ -414,8 +444,8 @@ export class Game {
       this.particles.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 60 - this.speed * 0.2,
-        vy: -Math.random() * 30,
+        vx: (this.random() - 0.5) * 60 - this.speed * 0.2,
+        vy: -this.random() * 30,
         gravity: 80,
         life: 0.3,
         maxLife: 0.3,
@@ -427,8 +457,8 @@ export class Game {
 
   private sparkle(x: number, y: number, n = 10): void {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const v = 20 + Math.random() * 50;
+      const a = this.random() * Math.PI * 2;
+      const v = 20 + this.random() * 50;
       this.particles.push({
         x,
         y,
@@ -449,9 +479,10 @@ export class Game {
     ctx.save();
     if (this.shake > 0) {
       const m = Math.ceil(this.shake * 8);
-      ctx.translate(Math.round((Math.random() - 0.5) * m), Math.round((Math.random() - 0.5) * m));
+      ctx.translate(Math.round((this.random() - 0.5) * m), Math.round((this.random() - 0.5) * m));
     }
 
+    this.background ??= new Background(this.sprites);
     this.background.draw(ctx, this.scroll, this.time);
     this.drawTortoise(ctx);
 

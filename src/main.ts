@@ -39,7 +39,8 @@ function showOverlay(state: GameState, html = ''): void {
   overlay.hidden = false;
   const action = isTouch ? 'Tap' : 'Press Space';
   if (state === 'title') {
-    overlay.innerHTML = `<div class="card"><h2>Catch the tortoise</h2><p>${action} to run · ${isTouch ? 'swipe down' : '↓'} to duck</p></div>`;
+    const controls = isTouch ? 'Tap to run · hold the left side to duck' : `${action} to run · ↓ to duck`;
+    overlay.innerHTML = `<div class="card"><h2>Catch the tortoise</h2><p>${controls}</p></div>`;
   } else if (state === 'paused') {
     overlay.innerHTML = `<div class="card"><h2>Paused</h2><p>${action} or P to continue</p></div>`;
   } else {
@@ -58,10 +59,13 @@ function renderBest(distance: number): void {
   bestEl.textContent = distance > 0 ? formatGapDecimal(distance) : '0';
 }
 
-const game = new Game(
+const game = new Game({
   audio,
-  {
-    onStateChange: (state) => showOverlay(state),
+  events: {
+    onStateChange: (state) => {
+      stageEl.dataset.state = state;
+      showOverlay(state);
+    },
     onStage: (stage) => {
       fractionEl.textContent = formatStageFraction(stage);
       tauntEl.textContent = tauntFor(stage);
@@ -84,9 +88,10 @@ const game = new Game(
       );
     },
   },
-  loadNumber('zeno.best', 0),
-);
+  best: loadNumber('zeno.best', 0),
+});
 renderBest(game.best);
+stageEl.dataset.state = 'title';
 showOverlay('title');
 
 // -- Sound toggle -------------------------------------------------------------
@@ -135,27 +140,32 @@ window.addEventListener('keyup', (e) => {
   else if (DUCK_KEYS.has(e.code)) game.setDuck(false);
 });
 
-// -- Touch / mouse: tap to jump, swipe down to duck ---------------------------
+// -- Touch / mouse ------------------------------------------------------------
+// Mouse: click anywhere to jump. Touch: hold the left third to duck, tap
+// anywhere else to jump. Separate zones mean ducking never starts with a hop.
 
-let pointerStartY: number | null = null;
+const DUCK_ZONE = 0.35;
+const pointerRoles = new Map<number, 'jump' | 'duck'>();
+const holding = (role: 'jump' | 'duck') => [...pointerRoles.values()].includes(role);
 
 stageEl.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  pointerStartY = e.clientY;
-  game.pressJump();
-});
-
-stageEl.addEventListener('pointermove', (e) => {
-  if (pointerStartY !== null && e.clientY - pointerStartY > 24) {
-    game.releaseJump();
+  const rect = stageEl.getBoundingClientRect();
+  const inDuckZone = e.pointerType !== 'mouse' && e.clientX - rect.left < rect.width * DUCK_ZONE;
+  if (inDuckZone && game.state === 'running') {
+    pointerRoles.set(e.pointerId, 'duck');
     game.setDuck(true);
+  } else {
+    pointerRoles.set(e.pointerId, 'jump');
+    game.pressJump();
   }
 });
 
-const endPointer = () => {
-  pointerStartY = null;
-  game.releaseJump();
-  game.setDuck(false);
+const endPointer = (e: PointerEvent) => {
+  const role = pointerRoles.get(e.pointerId);
+  pointerRoles.delete(e.pointerId);
+  if (role === 'jump' && !holding('jump')) game.releaseJump();
+  if (role === 'duck' && !holding('duck')) game.setDuck(false);
 };
 stageEl.addEventListener('pointerup', endPointer);
 stageEl.addEventListener('pointercancel', endPointer);
@@ -197,5 +207,8 @@ function frame(now: number): void {
 }
 requestAnimationFrame(frame);
 
-// Handy for poking at the game from the browser console during development.
-if (import.meta.env.DEV) (window as unknown as { zeno: Game }).zeno = game;
+// Handy for poking at the game from the console (and for browser tests):
+// always on in dev, and in production with ?debug in the URL.
+if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
+  (window as unknown as { zeno: Game }).zeno = game;
+}
