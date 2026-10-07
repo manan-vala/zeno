@@ -1,4 +1,4 @@
-import { PixelGrid } from './pixels';
+import { NIGHT_PALETTE, PixelGrid } from './pixels';
 
 export type Sprite = HTMLCanvasElement;
 
@@ -6,6 +6,8 @@ export type Sprite = HTMLCanvasElement;
 export type Bake = (grid: PixelGrid) => Sprite;
 
 const toCanvas: Bake = (grid) => grid.toCanvas();
+/** Bakes sprites in the red-figure night palette. */
+export const toNightCanvas: Bake = (grid) => grid.toCanvas(NIGHT_PALETTE);
 // Set for the duration of buildSprites().
 let bake: Bake = toCanvas;
 
@@ -250,6 +252,16 @@ function cypress(): Sprite {
   return bake(g);
 }
 
+/** The arrow that crosses the sky while time stands still. */
+function arrow(): Sprite {
+  const g = new PixelGrid(20, 5);
+  g.line(3, 2, 16, 2, 'k');
+  g.rows(['.....k', '....kk', '...kkk', '....kk', '.....k'], 14, 0); // head
+  g.rows(['k.k', '.kk', 'kk.', '.kk', 'k.k'], 0, 0); // fletching
+  g.recolor('k');
+  return bake(g);
+}
+
 // ---------------------------------------------------------------------------
 
 export interface SpriteSheet {
@@ -266,6 +278,7 @@ export interface SpriteSheet {
   temple: Sprite;
   olives: Sprite[];
   cypress: Sprite;
+  arrow: Sprite;
 }
 
 export function buildSprites(bakeWith: Bake = toCanvas): SpriteSheet {
@@ -289,5 +302,6 @@ export function buildSprites(bakeWith: Bake = toCanvas): SpriteSheet {
     temple: temple(),
     olives: [oliveTree(0), oliveTree(1), oliveTree(2)],
     cypress: cypress(),
+    arrow: arrow(),
   };
 }

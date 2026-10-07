@@ -35,3 +35,25 @@ export const COLORS = {
   white: '#f2e5cf',
   red: '#7d2a1c',
 };
+
+// Instant: the arrow paradox. Seeds charge it; it slows everything to a crawl.
+export const INSTANT = {
+  seedsToFill: 8,
+  duration: 1.6, // real seconds
+  worldScale: 0.15, // how fast the world (and Achilles) moves while time is stopped
+  ease: 0.15, // seconds to slow down and speed back up
+};
+
+// Day and red-figure night alternate every few halvings.
+export const NIGHT = {
+  stagesPerPhase: 4,
+  fade: 700, // px of running to cross-fade between them
+};
+
+// Crash sequence timings, in seconds after impact.
+export const DEATH = {
+  crackTime: 0.35, // cracks spread across the vase
+  shatterAt: 0.6, // the vase falls apart
+  restartAfter: 1.0, // earliest a restart press is accepted
+  reassembleTime: 0.55, // the new vase flies back together
+};

@@ -8,12 +8,23 @@ import { COLORS } from './config';
  *   r = added red
  *   d = deep clay (for background silhouettes)
  */
-const PALETTE: Record<string, string> = {
+export type Palette = Record<string, string>;
+
+export const DAY_PALETTE: Palette = {
   k: COLORS.ink,
   o: COLORS.incise,
   w: COLORS.white,
   r: COLORS.red,
   d: COLORS.clayDeep,
+};
+
+/** Red-figure: the figures are left in clay and their details painted in black. */
+export const NIGHT_PALETTE: Palette = {
+  k: COLORS.clay,
+  o: COLORS.ink,
+  w: COLORS.white,
+  r: COLORS.red,
+  d: '#3b231a',
 };
 
 /** A tiny paintable pixel grid that bakes down to an offscreen canvas. */
@@ -106,7 +117,7 @@ export class PixelGrid {
     return this;
   }
 
-  toCanvas(): HTMLCanvasElement {
+  toCanvas(palette: Palette = DAY_PALETTE): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = this.w;
     canvas.height = this.h;
@@ -115,7 +126,7 @@ export class PixelGrid {
       for (let x = 0; x < this.w; x++) {
         const key = this.cells[y * this.w + x];
         if (!key) continue;
-        ctx.fillStyle = PALETTE[key] ?? key;
+        ctx.fillStyle = palette[key] ?? key;
         ctx.fillRect(x, y, 1, 1);
       }
     }

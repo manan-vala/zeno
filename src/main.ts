@@ -3,9 +3,11 @@ import '@fontsource/silkscreen/400.css';
 import './style.css';
 
 import { AudioEngine } from './audio';
-import { VIEW_H, VIEW_W } from './config';
+import { NIGHT, VIEW_H, VIEW_W } from './config';
 import { Game, type GameState } from './game';
+import { Renderer } from './renderer';
 import { formatGapDecimal, formatStageFraction, tauntFor } from './score';
+import { buildSprites } from './sprites';
 import { loadFlag, loadNumber, save } from './storage';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -20,6 +22,7 @@ const seedsEl = $<HTMLElement>('seeds');
 const bestEl = $<HTMLElement>('best');
 const tauntEl = $<HTMLParagraphElement>('taunt');
 const muteBtn = $<HTMLButtonElement>('mute');
+const instantBtn = $<HTMLButtonElement>('instant');
 
 // Everything is drawn into a small buffer, then scaled up onto the screen canvas.
 const buffer = document.createElement('canvas');
@@ -30,9 +33,10 @@ const sctx = screen.getContext('2d')!;
 
 const audio = new AudioEngine(loadFlag('zeno.muted', false));
 const isTouch = matchMedia('(pointer: coarse)').matches;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 function showOverlay(state: GameState, html = ''): void {
-  if (state === 'running') {
+  if (state === 'running' || state === 'reassembling') {
     overlay.hidden = true;
     return;
   }
@@ -40,7 +44,8 @@ function showOverlay(state: GameState, html = ''): void {
   const action = isTouch ? 'Tap' : 'Press Space';
   if (state === 'title') {
     const controls = isTouch ? 'Tap to run · hold the left side to duck' : `${action} to run · ↓ to duck`;
-    overlay.innerHTML = `<div class="card"><h2>Catch the tortoise</h2><p>${controls}</p></div>`;
+    const instant = isTouch ? 'tap Instant' : 'press Shift';
+    overlay.innerHTML = `<div class="card"><h2>Catch the tortoise</h2><p>${controls}</p><p>Gather 8 seeds, then ${instant} to stop time</p></div>`;
   } else if (state === 'paused') {
     overlay.innerHTML = `<div class="card"><h2>Paused</h2><p>${action} or P to continue</p></div>`;
   } else {
@@ -48,8 +53,8 @@ function showOverlay(state: GameState, html = ''): void {
   }
 }
 
-function showToast(text: string): void {
-  toast.textContent = text;
+function showToast(text: string, caption = ''): void {
+  toast.innerHTML = caption ? `${text}<small>${caption}</small>` : text;
   toast.classList.remove('show');
   void toast.offsetWidth; // restart the animation
   toast.classList.add('show');
@@ -59,8 +64,10 @@ function renderBest(distance: number): void {
   bestEl.textContent = distance > 0 ? formatGapDecimal(distance) : '0';
 }
 
+const sprites = buildSprites();
 const game = new Game({
   audio,
+  sprites,
   events: {
     onStateChange: (state) => {
       stageEl.dataset.state = state;
@@ -69,18 +76,23 @@ const game = new Game({
     onStage: (stage) => {
       fractionEl.textContent = formatStageFraction(stage);
       tauntEl.textContent = tauntFor(stage);
-      if (stage > 0) showToast(formatStageFraction(stage));
+      if (stage <= 0) return;
+      // Every few halvings the painting turns from black-figure to red-figure and back.
+      const turn = stage % NIGHT.stagesPerPhase === 0;
+      const night = Math.floor(stage / NIGHT.stagesPerPhase) % 2 === 1;
+      showToast(formatStageFraction(stage), turn ? (night ? 'Night falls' : 'Dawn') : '');
     },
     onSeeds: (count) => {
       seedsEl.textContent = String(count);
     },
+    onInstant: (charge, active) => renderInstant(charge, active),
     onGameOver: ({ distance, seeds, best, previousBest }) => {
       save('zeno.best', best);
       renderBest(best);
       const action = isTouch ? 'Tap' : 'Press Space';
       showOverlay(
         'over',
-        `<div class="card">
+        `<div class="card${reduceMotion ? '' : ' after-shatter'}">
           <h2>${previousBest > 0 && distance > previousBest ? 'Closer than ever.' : 'The tortoise wins. Again.'}</h2>
           <p class="stats-line">Gap closed ${formatGapDecimal(distance)} · ${seeds} seed${seeds === 1 ? '' : 's'}</p>
           <p>${action} to run again</p>
@@ -90,6 +102,7 @@ const game = new Game({
   },
   best: loadNumber('zeno.best', 0),
 });
+const renderer = new Renderer(game, sprites, { reduceMotion });
 renderBest(game.best);
 stageEl.dataset.state = 'title';
 showOverlay('title');
@@ -114,6 +127,26 @@ muteBtn.addEventListener('click', (e) => {
 });
 renderMute();
 
+// -- Instant -------------------------------------------------------------------
+
+function renderInstant(charge: number, active: boolean): void {
+  const ready = charge >= 1 && !active;
+  instantBtn.style.setProperty('--charge', String(active ? 1 : charge));
+  instantBtn.classList.toggle('ready', ready);
+  instantBtn.classList.toggle('active', active);
+  instantBtn.setAttribute('aria-disabled', String(!ready));
+  instantBtn.title = ready ? 'Stop time (Shift)' : `Gather seeds to charge (${Math.round(charge * 8)}/8)`;
+}
+renderInstant(0, false);
+
+instantBtn.addEventListener('pointerdown', (e) => {
+  // Don't let the stage underneath treat this as a jump.
+  e.stopPropagation();
+  e.preventDefault();
+  game.activateInstant();
+});
+instantBtn.addEventListener('click', (e) => (e.currentTarget as HTMLButtonElement).blur());
+
 // -- Keyboard -----------------------------------------------------------------
 
 const JUMP_KEYS = new Set(['Space', 'ArrowUp', 'KeyW']);
@@ -130,6 +163,8 @@ window.addEventListener('keydown', (e) => {
     game.togglePause();
   } else if (e.code === 'KeyM') {
     toggleMute();
+  } else if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyF') && !e.repeat) {
+    game.activateInstant();
   } else if (e.code === 'Enter' && (game.state === 'title' || game.state === 'over')) {
     game.pressJump();
   }
@@ -193,7 +228,7 @@ function frame(now: number): void {
   const dt = (now - last) / 1000;
   last = now;
   game.tick(dt);
-  game.render(bctx);
+  renderer.render(bctx);
 
   sctx.imageSmoothingEnabled = false;
   sctx.drawImage(buffer, 0, 0, screen.width, screen.height);

@@ -16,6 +16,7 @@ npm run dev      # http://localhost:5173
 |---|---|---|
 | Jump (hold for higher) | `Space` / `↑` / `W` | Tap anywhere else |
 | Duck (fast-fall in the air) | `↓` / `S` | Hold the left third of the game |
+| Instant (stop time, needs 8 seeds) | `Shift` / `F` | The Instant button |
 | Pause | `P` / `Esc` | |
 | Mute | `M` or the Sound button | Sound button |
 
@@ -28,13 +29,27 @@ npm run dev      # http://localhost:5173
   columns, then owls at three heights (jump the low ones, duck the middle ones,
   ignore the high ones).
 - **Seeds:** white millet seeds float in arcs and rows. Each one in a streak
-  plays a higher note.
+  plays a higher note, and every 8 seeds charge **Instant**.
+- **Instant** (the arrow paradox: at any instant, a flying arrow is still):
+  1.6 s of bullet time. The whole world, Achilles included, slows to 15%, so
+  jumps cover the same ground but you get far longer to react. An arrow
+  crosses the frozen sky and the music sinks and slows.
+- **Red-figure night:** every 4 halvings the painting cross-fades between
+  black-figure day (black figures on clay) and red-figure night (clay figures
+  on black, with a moon and stars), as Greek potters switched styles around
+  530 BC.
+- **The vase breaks:** a crash cracks the picture from the point of impact,
+  then it falls apart in shards. Restarting flies a fresh vase back together.
+  With reduced motion turned on, it only cracks.
 - **Art:** everything is drawn on a 320×120 canvas in the black-figure palette
   and scaled up with nearest-neighbour sampling. Sprites are pixel grids built
   in code (`src/sprites.ts`), so there are no image assets.
 - **Sound:** synthesized with the Web Audio API (`src/audio.ts`). Plucked notes
-  use Karplus-Strong for a lyre-like tone, and the music is a D Dorian arpeggio
-  whose tempo follows your speed and gains layers as the gap halves.
+  use Karplus-Strong for a lyre-like tone. The music is a D Dorian arpeggio
+  whose tempo follows your speed. Zeno's millet-seed paradox says one seed is
+  silent but a bushel makes a sound, so layers arrive at 10, 25 and 50 seeds
+  (octave sparkle, hi-hat, melody). Underneath runs a Shepard tone, an audio
+  illusion of a pitch that rises forever without arriving.
 
 ## Scripts
 
@@ -93,8 +108,11 @@ Add `?debug` to the URL to expose the game as `window.zeno` in the console.
 ```
 src/
   main.ts        DOM, input, canvas scaling, main loop
-  game.ts        game state, physics, spawning, collisions, rendering
-  background.ts  parallax hills, temples, olive trees and the key-pattern bands
+  game.ts        the simulation: state, physics, spawning, collisions, Instant
+  renderer.ts    draws the game: day/night cross-fade, Instant, the breaking vase
+  theme.ts       black-figure and red-figure palettes, and when night falls
+  shatter.ts     crack and shard geometry for the breaking vase
+  background.ts  parallax hills, temples, olive trees, key-pattern bands, sky
   sprites.ts     Achilles, the tortoise, obstacles and scenery as pixel grids
   pixels.ts      tiny pixel-grid painter used by the sprites
   audio.ts       synthesized sound effects and music

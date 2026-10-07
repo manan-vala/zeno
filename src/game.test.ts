@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PHYSICS, SPEED, STAGE_LENGTH } from './config';
+import { DEATH, PHYSICS, SPEED, STAGE_LENGTH } from './config';
 import { autopilot, clearField, GROUND_Y, makeGame, PLAYER_FRONT, run } from './testing/harness';
 
 const STAND_Y = GROUND_Y - 24;
@@ -181,16 +181,24 @@ describe('collisions', () => {
     expect(h.game.state).toBe('running');
   });
 
-  it('ignores restart presses for half a second after dying', () => {
+  it('ignores restart presses until the vase has broken, then reassembles', () => {
     const h = started();
     placeObstacle(h, 'amphora', 10, 16);
     while (h.game.state === 'running') run(h.game, 1 / 60);
+    expect(h.audio.calls).toContain('shatter(0.6)');
     h.game.pressJump();
     expect(h.game.state).toBe('over');
-    run(h.game, 0.6);
+    run(h.game, DEATH.restartAfter + 0.05);
     h.game.pressJump();
-    expect(h.game.state).toBe('running');
+    expect(h.game.state).toBe('reassembling');
     expect(h.game.distance).toBe(0);
+    expect(h.audio.calls.at(-1)).toBe('reassemble');
+    // Input is ignored while the pieces fly back together.
+    h.game.pressJump();
+    expect(h.g.onGround).toBe(true);
+    run(h.game, DEATH.reassembleTime + 0.05);
+    expect(h.game.state).toBe('running');
+    expect(h.events.states.slice(-3)).toEqual(['over', 'reassembling', 'running']);
   });
 
   it.each([
