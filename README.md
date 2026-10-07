@@ -60,12 +60,10 @@ npm run deploy       # builds, then uploads dist/ to the "zeno" Worker
 
 The first deploy prints a `https://zeno.<your-subdomain>.workers.dev` URL.
 
-**Custom domain** (zone on Cloudflare): uncomment the `routes` entry in
-`wrangler.jsonc`, set your hostname (e.g. `zeno.example.com` or the apex
-`example.com`), and deploy again. Cloudflare creates the DNS record and TLS
-certificate itself. Remove any existing DNS record for that hostname first.
-You can also add the domain in the dashboard: Workers & Pages → zeno →
-Settings → Domains & Routes → Add → Custom domain.
+**Custom domain:** the game is live at <https://zeroengine.space>, set by the
+`routes` entry in `wrangler.jsonc`. Cloudflare manages that hostname's DNS
+record and certificate itself. `www.zeroengine.space` is a proxied DNS record
+plus a zone Redirect Rule that 301s to the apex.
 
 Other deploy files:
 

@@ -12,7 +12,7 @@
   // Keep the free *.workers.dev URL available alongside a custom domain.
   "workers_dev": true,
 
-  // To serve the game on your own domain (DNS on Cloudflare), uncomment and set
-  // the hostname. Cloudflare creates the DNS record and certificate on deploy.
+  // Custom domain (zone on Cloudflare). Cloudflare manages its DNS record and
+  // certificate. www.zeroengine.space is redirected here by a zone Redirect Rule.
   "routes": [{ "pattern": "zeroengine.space", "custom_domain": true }]
 }
