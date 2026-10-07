@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Zeno: an endless runner painted on a Greek vase. Achilles chases the tortoise. He never quite catches it." />
+    <meta name="theme-color" content="#17100d" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>Zeno</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <div class="brand">
+          <h1>Zeno</h1>
+          <span class="subtitle">Achilles &amp; the Tortoise</span>
+        </div>
+        <div class="actions">
+          <span class="hint"><kbd>Space</kbd> jump <kbd>↓</kbd> duck <kbd>P</kbd> pause</span>
+          <button id="mute" class="pill" type="button" aria-pressed="false">Sound on</button>
+        </div>
+      </header>
+
+      <main class="stage" id="stage">
+        <canvas id="screen" aria-label="Zeno game"></canvas>
+        <div id="toast" class="toast" aria-live="polite"></div>
+        <div id="overlay" class="overlay"></div>
+      </main>
+
+      <footer class="bottom">
+        <div class="readout">
+          <span class="label">Gap closed</span>
+          <span id="fraction" class="fraction">0</span>
+          <span id="decimal" class="decimal">0.0000</span>
+        </div>
+        <div class="stats">
+          <span class="label">Seeds <b id="seeds">0</b></span>
+          <span class="label">Best <b id="best">0</b></span>
+        </div>
+        <p id="taunt" class="taunt">The tortoise has a head start. Catch it.</p>
+      </footer>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
