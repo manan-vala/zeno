@@ -1,15 +1,15 @@
 import type { AudioEngine } from './audio';
-import { Background } from './background';
 import { inset, overlaps, type Box } from './collision';
-import { COLORS, GROUND_Y, PHYSICS, PLAYER_X, SPEED, VIEW_H, VIEW_W } from './config';
+import { DEATH, GROUND_Y, INSTANT, PHYSICS, PLAYER_X, SPEED, VIEW_W } from './config';
 import { remainingGap, stageFor } from './score';
-import { buildSprites, type Sprite, type SpriteSheet } from './sprites';
+import type { SpriteSheet } from './sprites';
+import { nightness } from './theme';
 
-export type GameState = 'title' | 'running' | 'paused' | 'over';
+export type GameState = 'title' | 'running' | 'paused' | 'over' | 'reassembling';
 
-type ObstacleKind = 'amphora' | 'amphoraPair' | 'columnBroken' | 'columnTall' | 'owl';
+export type ObstacleKind = 'amphora' | 'amphoraPair' | 'columnBroken' | 'columnTall' | 'owl';
 
-interface Obstacle {
+export interface Obstacle {
   kind: ObstacleKind;
   x: number;
   y: number;
@@ -20,13 +20,16 @@ interface Obstacle {
   phase: number;
 }
 
-interface Seed {
+export interface Seed {
   x: number;
   y: number;
   phase: number;
 }
 
-interface Particle {
+/** Particle colours are roles; the renderer maps them to the current theme. */
+export type Tone = 'figure' | 'white' | 'dust';
+
+export interface Particle {
   x: number;
   y: number;
   vx: number;
@@ -35,13 +38,14 @@ interface Particle {
   life: number;
   maxLife: number;
   size: number;
-  color: string;
+  tone: Tone;
 }
 
 export interface GameEvents {
   onStateChange(state: GameState): void;
   onStage(stage: number): void;
   onSeeds(count: number): void;
+  onInstant(charge: number, active: boolean): void;
   onGameOver(result: { distance: number; seeds: number; best: number; previousBest: number }): void;
 }
 
@@ -55,63 +59,85 @@ export type GameAudio = Pick<
   | 'seed'
   | 'halve'
   | 'hit'
+  | 'shatter'
+  | 'reassemble'
   | 'gameOver'
   | 'start'
   | 'startMusic'
   | 'stopMusic'
   | 'setIntensity'
+  | 'instant'
   | 'suspend'
   | 'resume'
 >;
+
+/** Only sizes are needed for the simulation; the renderer owns the pictures. */
+type Sizes = Pick<SpriteSheet, 'amphora' | 'amphoraPair' | 'columnBroken' | 'columnTall' | 'owl'>;
 
 export interface GameOptions {
   audio: GameAudio;
   events: GameEvents;
   best: number;
-  /** Pre-built sprites; defaults to baking them onto canvases. */
-  sprites?: SpriteSheet;
+  /** Sprite sizes, used for obstacle hitboxes. */
+  sprites: Sizes;
   /** Random source in [0, 1); injectable so tests are deterministic. */
   random?: () => number;
 }
 
 const STEP = 1 / 120;
 const TITLE_SPEED = 70;
+const STAND_Y = GROUND_Y - 24;
 
+/**
+ * The simulation. Everything public here is read by the renderer and tests;
+ * only the game itself changes it.
+ */
 export class Game {
   state: GameState = 'title';
   distance = 0;
   best: number;
   seeds = 0;
 
-  private sprites: SpriteSheet;
-  private background: Background | null = null;
+  scroll = 0;
+  /** Real seconds since the page loaded (not slowed by Instant). */
+  time = 0;
+  speed = SPEED.start;
+  stage = 0;
+
+  y = STAND_Y; // top of Achilles' sprite
+  vy = 0;
+  onGround = true;
+  jumpHeld = false;
+  duckHeld = false;
+  runPhase = 0;
+
+  obstacles: Obstacle[] = [];
+  seedsOnField: Seed[] = [];
+  particles: Particle[] = [];
+  untilNextObstacle = 0;
+
+  tortoiseHop = 0;
+  shake = 0;
+
+  /** Instant: 0..1 charge from seeds, and seconds left while active. */
+  instantCharge = 0;
+  instantLeft = 0;
+  /** The arrow that crosses the sky during Instant. */
+  arrow: { x: number; y: number } | null = null;
+
+  /** Where Achilles hit; drives the cracking vase. */
+  crash: { x: number; y: number } | null = null;
+  overAt = 0;
+  reassembleAt = 0;
+
   private audio: GameAudio;
   private events: GameEvents;
   private random: () => number;
-  private scroll = 0;
-  private time = 0;
-  private speed = SPEED.start;
-  private stage = 0;
-
-  private y = GROUND_Y - 24; // top of Achilles' sprite
-  private vy = 0;
-  private onGround = true;
-  private jumpHeld = false;
-  private duckHeld = false;
-  private runPhase = 0;
+  private sizes: Sizes;
   private dustTimer = 0;
-
-  private obstacles: Obstacle[] = [];
-  private seedsOnField: Seed[] = [];
-  private particles: Particle[] = [];
-  private untilNextObstacle = 0;
   private streak = 0;
   private streakTimer = 0;
-
-  private tortoiseHop = 0;
   private tortoiseVy = 0;
-  private shake = 0;
-  private overAt = 0;
   private accumulator = 0;
 
   constructor(options: GameOptions) {
@@ -119,7 +145,7 @@ export class Game {
     this.events = options.events;
     this.best = options.best;
     this.random = options.random ?? Math.random;
-    this.sprites = options.sprites ?? buildSprites();
+    this.sizes = options.sprites;
   }
 
   // -- Input ----------------------------------------------------------------
@@ -130,9 +156,10 @@ export class Game {
     if (this.state === 'title') return this.start();
     if (this.state === 'paused') return this.togglePause();
     if (this.state === 'over') {
-      if (this.time - this.overAt > 0.5) this.start();
+      if (this.time - this.overAt >= DEATH.restartAfter) this.reassemble();
       return;
     }
+    if (this.state !== 'running') return;
     this.jumpHeld = true;
     if (this.onGround && !this.duckHeld) {
       this.vy = -PHYSICS.jumpVelocity;
@@ -148,6 +175,17 @@ export class Game {
   setDuck(down: boolean): void {
     if (down && !this.duckHeld && this.state === 'running' && this.onGround) this.audio.duck();
     this.duckHeld = down;
+  }
+
+  /** Stops time (nearly): bullet time for the whole world. Needs a full charge. */
+  activateInstant(): boolean {
+    if (this.state !== 'running' || this.instantCharge < 1 || this.instantLeft > 0) return false;
+    this.instantCharge = 0;
+    this.instantLeft = INSTANT.duration;
+    this.arrow = { x: -20, y: 30 };
+    this.audio.instant(true);
+    this.events.onInstant(0, true);
+    return true;
   }
 
   togglePause(): void {
@@ -167,13 +205,27 @@ export class Game {
 
   // -- Lifecycle ------------------------------------------------------------
 
+  /** First run from the title screen. */
   start(): void {
+    this.resetRun();
+    this.beginRun();
+  }
+
+  /** After a crash: reset, then let the vase fly back together before running. */
+  private reassemble(): void {
+    this.resetRun();
+    this.reassembleAt = this.time;
+    this.setState('reassembling');
+    this.audio.reassemble();
+  }
+
+  private resetRun(): void {
     this.distance = 0;
     this.speed = SPEED.start;
     this.stage = 0;
     this.seeds = 0;
     this.streak = 0;
-    this.y = GROUND_Y - 24;
+    this.y = STAND_Y;
     this.vy = 0;
     this.onGround = true;
     this.jumpHeld = false;
@@ -182,8 +234,16 @@ export class Game {
     this.particles = [];
     this.untilNextObstacle = 220;
     this.shake = 0;
+    this.instantCharge = 0;
+    this.instantLeft = 0;
+    this.arrow = null;
     this.events.onStage(0);
     this.events.onSeeds(0);
+    this.events.onInstant(0, false);
+  }
+
+  private beginRun(): void {
+    this.crash = null;
     this.setState('running');
     this.audio.start();
     this.audio.startMusic();
@@ -197,22 +257,27 @@ export class Game {
   private die(): void {
     this.setState('over');
     this.overAt = this.time;
+    this.crash = { x: PLAYER_X + 12, y: this.y + 12 };
     this.shake = 0.35;
+    if (this.instantLeft > 0) {
+      this.instantLeft = 0;
+      this.audio.instant(false);
+    }
     this.audio.stopMusic();
     this.audio.hit();
+    this.audio.shatter(DEATH.shatterAt);
     this.audio.gameOver();
-    // Pottery shards.
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 14; i++) {
       this.particles.push({
-        x: PLAYER_X + 12,
-        y: this.y + 12,
+        x: this.crash.x,
+        y: this.crash.y,
         vx: (this.random() - 0.3) * 160,
         vy: -60 - this.random() * 140,
         gravity: 520,
-        life: 1.2,
-        maxLife: 1.2,
+        life: 0.6,
+        maxLife: 0.6,
         size: this.random() < 0.4 ? 2 : 1,
-        color: this.random() < 0.8 ? COLORS.ink : COLORS.white,
+        tone: this.random() < 0.8 ? 'figure' : 'white',
       });
     }
     const previousBest = this.best;
@@ -232,21 +297,46 @@ export class Game {
     }
   }
 
+  /** How fast the world moves relative to Achilles: 1 normally, ~0.15 in Instant. */
+  worldScale(): number {
+    if (this.instantLeft <= 0) return 1;
+    const elapsed = INSTANT.duration - this.instantLeft;
+    const f = Math.min(1, elapsed / INSTANT.ease, this.instantLeft / INSTANT.ease);
+    return 1 + (INSTANT.worldScale - 1) * f;
+  }
+
+  /** 0 for black-figure day, 1 for red-figure night. */
+  nightness(): number {
+    return this.state === 'title' ? 0 : nightness(this.distance);
+  }
+
   private update(dt: number): void {
     this.time += dt;
     this.shake = Math.max(0, this.shake - dt);
-    this.updateParticles(dt);
     this.updateTortoise(dt);
 
     if (this.state === 'title') {
+      this.updateParticles(dt);
       this.scroll += TITLE_SPEED * dt;
       this.runPhase += dt * 8;
       return;
     }
-    if (this.state !== 'running') return;
+    if (this.state === 'reassembling') {
+      if (this.time - this.reassembleAt >= DEATH.reassembleTime) this.beginRun();
+      return;
+    }
+    if (this.state !== 'running') {
+      this.updateParticles(dt);
+      return;
+    }
 
-    this.speed = Math.min(SPEED.max, this.speed + SPEED.accel * dt);
-    const dx = this.speed * dt;
+    // Instant is bullet time: the whole world, Achilles included, runs slow,
+    // so every jump covers the same ground but you get far longer to react.
+    const wdt = dt * this.worldScale();
+    this.updateParticles(wdt);
+
+    this.speed = Math.min(SPEED.max, this.speed + SPEED.accel * wdt);
+    const dx = this.speed * wdt;
     this.scroll += dx;
     this.distance += dx;
 
@@ -258,15 +348,30 @@ export class Game {
       this.tortoiseVy = -70;
       this.sparkle(this.tortoiseX() + 9, GROUND_Y - 10);
     }
-    this.audio.setIntensity((this.speed - SPEED.start) / (SPEED.max - SPEED.start), this.stage);
+    this.audio.setIntensity((this.speed - SPEED.start) / (SPEED.max - SPEED.start), this.seeds);
 
-    this.updatePlayer(dt);
-    this.updateObstacles(dt, dx);
+    this.updatePlayer(wdt);
+    this.updateObstacles(wdt, dx);
     if (this.state !== 'running') return;
     this.updateSeeds(dx);
+    this.updateInstant(dt, wdt);
 
     this.streakTimer -= dt;
     if (this.streakTimer <= 0) this.streak = 0;
+  }
+
+  private updateInstant(dt: number, wdt: number): void {
+    if (this.arrow) {
+      this.arrow.x += 420 * wdt;
+      if (this.arrow.x > VIEW_W + 20) this.arrow = null;
+    }
+    if (this.instantLeft <= 0) return;
+    this.instantLeft -= dt;
+    if (this.instantLeft <= 0) {
+      this.instantLeft = 0;
+      this.audio.instant(false);
+      this.events.onInstant(this.instantCharge, false);
+    }
   }
 
   private updatePlayer(dt: number): void {
@@ -276,8 +381,8 @@ export class Game {
       else if (this.jumpHeld && this.vy < 0) g = PHYSICS.gravity;
       this.vy += g * dt;
       this.y += this.vy * dt;
-      if (this.y >= GROUND_Y - 24) {
-        this.y = GROUND_Y - 24;
+      if (this.y >= STAND_Y) {
+        this.y = STAND_Y;
         this.vy = 0;
         this.onGround = true;
         this.audio.land();
@@ -299,13 +404,13 @@ export class Game {
           life: 0.35,
           maxLife: 0.35,
           size: 1,
-          color: COLORS.clayDeep,
+          tone: 'dust',
         });
       }
     }
   }
 
-  private isDucking(): boolean {
+  isDucking(): boolean {
     return this.duckHeld && this.onGround;
   }
 
@@ -314,14 +419,14 @@ export class Game {
     return inset({ x: PLAYER_X + 5, y: this.y + 3, w: 11, h: 21 }, 1);
   }
 
-  private updateObstacles(dt: number, dx: number): void {
+  private updateObstacles(wdt: number, dx: number): void {
     this.untilNextObstacle -= dx;
     if (this.untilNextObstacle <= 0) this.spawnObstacle();
 
     const player = this.playerBox();
     for (const o of this.obstacles) {
-      o.x -= dx + o.vx * dt;
-      o.phase += dt;
+      o.x -= dx + o.vx * wdt;
+      o.phase += wdt;
       if (overlaps(player, this.obstacleBox(o))) {
         this.die();
         return;
@@ -342,7 +447,7 @@ export class Game {
     }
   }
 
-  private owlBob(o: Obstacle): number {
+  owlBob(o: Obstacle): number {
     return Math.round(Math.sin(o.phase * 6) * 1.5);
   }
 
@@ -352,13 +457,13 @@ export class Game {
     if (this.stage >= 2) pool.push('owl', 'owl');
     const kind = pool[Math.floor(this.random() * pool.length)];
 
-    const sprite = this.spriteFor(kind, 0);
+    const size = kind === 'owl' ? this.sizes.owl[0] : this.sizes[kind];
     const o: Obstacle = {
       kind,
       x: VIEW_W + 8,
-      y: GROUND_Y - sprite.height,
-      w: sprite.width,
-      h: sprite.height,
+      y: GROUND_Y - size.height,
+      w: size.width,
+      h: size.height,
       vx: 0,
       phase: this.random() * 6,
     };
@@ -401,19 +506,29 @@ export class Game {
     this.seedsOnField = this.seedsOnField.filter((s) => {
       s.x -= dx;
       if (overlaps(reach, { x: s.x - 1, y: s.y - 1, w: 3, h: 3 })) {
-        this.seeds++;
-        this.audio.seed(this.streak);
-        this.streak++;
-        this.streakTimer = 1.2;
-        this.events.onSeeds(this.seeds);
-        this.sparkle(s.x, s.y, 4);
+        this.collectSeed(s);
         return false;
       }
       return s.x > -10;
     });
   }
 
-  private tortoiseX(): number {
+  private collectSeed(s: Seed): void {
+    this.seeds++;
+    this.audio.seed(this.streak);
+    this.streak++;
+    this.streakTimer = 1.2;
+    this.events.onSeeds(this.seeds);
+    this.sparkle(s.x, s.y, 4);
+    if (this.instantCharge < 1) {
+      this.instantCharge = Math.min(1, this.instantCharge + 1 / INSTANT.seedsToFill);
+      // Snap away float error so the last seed makes exactly a full charge.
+      if (this.instantCharge > 0.999) this.instantCharge = 1;
+      this.events.onInstant(this.instantCharge, this.instantLeft > 0);
+    }
+  }
+
+  tortoiseX(): number {
     const rem = this.state === 'title' ? 1 : remainingGap(this.distance);
     return PLAYER_X + 60 + 210 * Math.pow(rem, 0.4);
   }
@@ -450,7 +565,7 @@ export class Game {
         life: 0.3,
         maxLife: 0.3,
         size: 1,
-        color: COLORS.clayDeep,
+        tone: 'dust',
       });
     }
   }
@@ -468,86 +583,8 @@ export class Game {
         life: 0.5,
         maxLife: 0.5,
         size: 1,
-        color: COLORS.white,
+        tone: 'white',
       });
-    }
-  }
-
-  // -- Rendering ------------------------------------------------------------
-
-  render(ctx: CanvasRenderingContext2D): void {
-    ctx.save();
-    if (this.shake > 0) {
-      const m = Math.ceil(this.shake * 8);
-      ctx.translate(Math.round((this.random() - 0.5) * m), Math.round((this.random() - 0.5) * m));
-    }
-
-    this.background ??= new Background(this.sprites);
-    this.background.draw(ctx, this.scroll, this.time);
-    this.drawTortoise(ctx);
-
-    for (const s of this.seedsOnField) this.drawSeed(ctx, s);
-    for (const o of this.obstacles) {
-      const frame = Math.floor(o.phase * 8) % 2;
-      const bob = o.kind === 'owl' ? this.owlBob(o) : 0;
-      ctx.drawImage(this.spriteFor(o.kind, frame), Math.round(o.x), Math.round(o.y + bob));
-    }
-
-    this.drawPlayer(ctx);
-
-    for (const p of this.particles) {
-      ctx.globalAlpha = Math.min(1, (p.life / p.maxLife) * 1.5);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-
-    if (this.state === 'over') {
-      ctx.fillStyle = 'rgba(28, 18, 16, 0.25)';
-      ctx.fillRect(0, 0, VIEW_W, VIEW_H);
-    }
-  }
-
-  private spriteFor(kind: ObstacleKind, frame: number): Sprite {
-    switch (kind) {
-      case 'owl':
-        return this.sprites.owl[frame];
-      default:
-        return this.sprites[kind];
-    }
-  }
-
-  private drawPlayer(ctx: CanvasRenderingContext2D): void {
-    const s = this.sprites;
-    if (this.state === 'over') {
-      ctx.drawImage(s.fallen, PLAYER_X, GROUND_Y - s.fallen.height);
-      return;
-    }
-    if (this.isDucking()) {
-      ctx.drawImage(s.duck, PLAYER_X, GROUND_Y - s.duck.height);
-      return;
-    }
-    const sprite = this.onGround ? s.run[Math.floor(this.runPhase) % s.run.length] : s.jump;
-    ctx.drawImage(sprite, PLAYER_X, Math.round(this.y));
-  }
-
-  private drawTortoise(ctx: CanvasRenderingContext2D): void {
-    const frame = Math.floor(this.time * 4) % 2;
-    const sprite = this.sprites.tortoise[frame];
-    const x = Math.round(this.tortoiseX());
-    ctx.drawImage(sprite, x, GROUND_Y - sprite.height + Math.round(this.tortoiseHop));
-  }
-
-  private drawSeed(ctx: CanvasRenderingContext2D, s: Seed): void {
-    const x = Math.round(s.x);
-    const y = Math.round(s.y + Math.sin(this.time * 4 + s.phase));
-    ctx.fillStyle = COLORS.white;
-    ctx.fillRect(x, y - 1, 1, 3);
-    ctx.fillRect(x - 1, y, 3, 1);
-    if (Math.sin(this.time * 6 + s.phase) > 0.6) {
-      ctx.fillStyle = COLORS.red;
-      ctx.fillRect(x, y, 1, 1);
     }
   }
 }

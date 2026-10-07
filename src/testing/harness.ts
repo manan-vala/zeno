@@ -21,6 +21,9 @@ export function recordingAudio(): GameAudio & { calls: string[] } {
     seed: log('seed'),
     halve: log('halve'),
     hit: log('hit'),
+    shatter: log('shatter'),
+    reassemble: log('reassemble'),
+    instant: log('instant'),
     gameOver: log('gameOver'),
     start: log('start'),
     startMusic: log('startMusic'),
@@ -35,6 +38,7 @@ export interface RecordedEvents extends GameEvents {
   states: GameState[];
   stages: number[];
   seeds: number[];
+  instants: [number, boolean][];
   gameOvers: Parameters<GameEvents['onGameOver']>[0][];
 }
 
@@ -43,10 +47,12 @@ export function recordingEvents(): RecordedEvents {
     states: [],
     stages: [],
     seeds: [],
+    instants: [],
     gameOvers: [],
     onStateChange: (s) => e.states.push(s),
     onStage: (s) => e.stages.push(s),
     onSeeds: (n) => e.seeds.push(n),
+    onInstant: (charge, active) => e.instants.push([charge, active]),
     onGameOver: (r) => e.gameOvers.push(r),
   };
   return e;
@@ -77,6 +83,8 @@ export interface Internals {
   stage: number;
   time: number;
   untilNextObstacle: number;
+  instantCharge: number;
+  instantLeft: number;
 }
 
 export function internals(game: Game): Internals {

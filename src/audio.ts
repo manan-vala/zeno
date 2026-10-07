@@ -13,14 +13,37 @@ const BARS = [
   { bass: 43, tones: [62, 67, 71, 74] },
 ];
 const ARP = [0, 2, 1, 3, 2, 1, 3, 2];
+// A melody over the four bars, in eighth notes; -1 is a rest.
+const MELODY = [
+  [74, -1, 77, -1, 76, 74, -1, 72],
+  [72, -1, 76, -1, 79, -1, 77, 76],
+  [74, -1, 81, -1, 79, 77, 76, 74],
+  [79, -1, 77, -1, 74, -1, 71, -1],
+];
+
+/**
+ * Zeno's millet seed: one seed makes no sound, a bushel makes a song. The
+ * music gains a layer as the seeds you've gathered in this run add up.
+ */
+export const LAYER_THRESHOLDS = [10, 25, 50];
+export function musicLayers(seeds: number): number {
+  return 1 + LAYER_THRESHOLDS.filter((t) => seeds >= t).length;
+}
 // Rising notes for seed pickups in a streak (D minor pentatonic, two octaves).
 const SEED_SCALE = [74, 77, 79, 81, 84, 86, 89, 91, 93, 96];
+
+const SHEPARD_VOICES = 6;
+const SHEPARD_BASE = 55; // Hz, the lowest octave (A1)
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
   private sfx!: GainNode;
   private music!: GainNode;
+  private musicFilter!: BiquadFilterNode;
+  private shepard: { oscs: OscillatorNode[]; gains: GainNode[]; out: GainNode; phase: number } | null = null;
+  private shepardRate = 0.05; // octaves per second
+  private tempoScale = 1;
   private noise!: AudioBuffer;
   private plucks = new Map<number, AudioBuffer>();
 
@@ -54,7 +77,11 @@ export class AudioEngine {
       this.sfx.connect(this.master);
       this.music = this.ctx.createGain();
       this.music.gain.value = 0.32;
-      this.music.connect(this.master);
+      // Everything musical runs through a filter so Instant can muffle it.
+      this.musicFilter = this.ctx.createBiquadFilter();
+      this.musicFilter.type = 'lowpass';
+      this.musicFilter.frequency.value = 18000;
+      this.music.connect(this.musicFilter).connect(this.master);
       this.noise = this.makeNoise();
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -153,6 +180,60 @@ export class AudioEngine {
     this.pluck(38, t, 0.4, this.sfx);
   }
 
+  /** The vase falls apart `delay` seconds from now: a clatter of shards. */
+  shatter(delay: number): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime + delay;
+    this.noiseBurst(t, 0.25, 'lowpass', 500, 0.35);
+    for (let i = 0; i < 9; i++) {
+      this.noiseBurst(t + 0.05 + i * 0.07 + Math.random() * 0.05, 0.04, 'bandpass', 1500 + Math.random() * 3000, 0.25);
+    }
+  }
+
+  /** The new vase flies back together: a rising swell and an up-arpeggio. */
+  reassemble(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(400, t);
+    filter.frequency.exponentialRampToValueAtTime(4000, t + 0.5);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.45);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    src.connect(filter).connect(g).connect(this.sfx);
+    src.start(t);
+    src.stop(t + 0.6);
+    [62, 69, 74, 81].forEach((m, i) => this.pluck(m, t + 0.3 + i * 0.05, 0.25, this.sfx));
+  }
+
+  /** Time stops (or starts again): muffle and slow the music, with a whoosh. */
+  instant(on: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.musicFilter.frequency.setTargetAtTime(on ? 420 : 18000, t, on ? 0.05 : 0.15);
+    this.tempoScale = on ? 0.5 : 1;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 3;
+    filter.frequency.setValueAtTime(on ? 3000 : 300, t);
+    filter.frequency.exponentialRampToValueAtTime(on ? 250 : 3000, t + 0.35);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    src.connect(filter).connect(g).connect(this.sfx);
+    src.start(t, Math.random() * 0.5);
+    src.stop(t + 0.42);
+  }
+
   /** Short descending phrase after the run ends. */
   gameOver(): void {
     const ctx = this.ctx;
@@ -177,6 +258,10 @@ export class AudioEngine {
     this.nextNoteTime = this.ctx.currentTime + 0.25;
     this.music.gain.cancelScheduledValues(this.ctx.currentTime);
     this.music.gain.setValueAtTime(0.32, this.ctx.currentTime);
+    this.tempoScale = 1;
+    this.musicFilter.frequency.cancelScheduledValues(this.ctx.currentTime);
+    this.musicFilter.frequency.setValueAtTime(18000, this.ctx.currentTime);
+    this.startShepard();
     this.timer = window.setInterval(() => this.schedule(), 25);
   }
 
@@ -184,6 +269,7 @@ export class AudioEngine {
     if (!this.musicPlaying) return;
     this.musicPlaying = false;
     window.clearInterval(this.timer);
+    this.stopShepard();
     if (this.ctx) {
       const t = this.ctx.currentTime;
       this.music.gain.setValueAtTime(this.music.gain.value, t);
@@ -192,20 +278,23 @@ export class AudioEngine {
   }
 
   /**
-   * @param speed01 run speed normalised to 0..1, which drives the tempo
-   * @param stage   how many times the gap has halved, which adds layers
+   * @param speed01 run speed normalised to 0..1: drives the tempo and how fast
+   *                the Shepard tone climbs
+   * @param seeds   seeds gathered this run, which add musical layers
    */
-  setIntensity(speed01: number, stage: number): void {
+  setIntensity(speed01: number, seeds: number): void {
     this.bpm = 96 + speed01 * 44;
-    this.layers = 1 + Math.min(2, Math.floor(stage / 2));
+    this.layers = musicLayers(seeds);
+    this.shepardRate = 0.04 + speed01 * 0.1;
   }
 
   private schedule(): void {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running') return;
+    this.updateShepard(0.025);
     while (this.nextNoteTime < ctx.currentTime + 0.12) {
       this.playStep(this.step, this.nextNoteTime);
-      this.nextNoteTime += 60 / this.bpm / 2; // eighth notes
+      this.nextNoteTime += 60 / (this.bpm * this.tempoScale) / 2; // eighth notes
       this.step = (this.step + 1) % (BARS.length * 8);
     }
   }
@@ -217,7 +306,68 @@ export class AudioEngine {
     this.pluck(bar.tones[ARP[beat]], t, 0.22, this.music);
     if (this.layers >= 2 && beat % 2 === 1) this.pluck(bar.tones[ARP[beat]] + 12, t, 0.08, this.music);
     if (this.layers >= 3) this.noiseBurst(t, 0.025, 'highpass', 6000, beat % 2 ? 0.05 : 0.09, this.music);
+    const note = MELODY[Math.floor(step / 8)][beat];
+    if (this.layers >= 4 && note > 0) this.pluck(note + 12, t, 0.2, this.music);
   }
+
+  // -- Shepard tone ---------------------------------------------------------
+  // Six sine waves an octave apart all glide upward; each fades in at the
+  // bottom and out at the top, so the pitch seems to rise forever without
+  // getting anywhere. Zeno would approve.
+
+  private startShepard(): void {
+    const ctx = this.ctx!;
+    if (this.shepard) return;
+    const out = ctx.createGain();
+    out.gain.value = 0.05;
+    out.connect(this.music);
+    const oscs: OscillatorNode[] = [];
+    const gains: GainNode[] = [];
+    for (let i = 0; i < SHEPARD_VOICES; i++) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      osc.connect(g).connect(out);
+      osc.start();
+      oscs.push(osc);
+      gains.push(g);
+    }
+    this.shepard = { oscs, gains, out, phase: 0 };
+    this.updateShepard(0);
+  }
+
+  private stopShepard(): void {
+    if (!this.shepard || !this.ctx) return;
+    const { oscs, out } = this.shepard;
+    const t = this.ctx.currentTime;
+    out.gain.setTargetAtTime(0, t, 0.08);
+    oscs.forEach((o) => o.stop(t + 0.5));
+    this.shepard = null;
+  }
+
+  private updateShepard(dt: number): void {
+    const ctx = this.ctx;
+    const sh = this.shepard;
+    if (!ctx || !sh) return;
+    const before = sh.phase;
+    sh.phase = (sh.phase + dt * this.shepardRate * this.tempoScale) % SHEPARD_VOICES;
+    const t = ctx.currentTime;
+    for (let i = 0; i < SHEPARD_VOICES; i++) {
+      const prev = (i + before) % SHEPARD_VOICES;
+      const octave = (i + sh.phase) % SHEPARD_VOICES; // 0..6
+      const freq = SHEPARD_BASE * Math.pow(2, octave);
+      // Loudest in the middle octaves, silent at both ends.
+      const level = Math.exp(-((octave - SHEPARD_VOICES / 2) ** 2) / 2.2);
+      const f = sh.oscs[i].frequency;
+      // A voice that just wrapped from the top back to the bottom jumps
+      // instantly (it's silent there); the rest glide.
+      if (octave < prev) f.setValueAtTime(freq, t);
+      else f.setTargetAtTime(freq, t, 0.03);
+      sh.gains[i].gain.setTargetAtTime(level, t, 0.03);
+    }
+  }
+
 
   // -- Building blocks ------------------------------------------------------
 

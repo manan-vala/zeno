@@ -16,6 +16,18 @@ test.afterEach(async ({ page }) => {
 });
 
 const overlay = (page: Page) => page.locator('#overlay');
+
+/** The game, exposed by ?debug. */
+type Debug = {
+  zeno: {
+    state: string;
+    onGround: boolean;
+    duckHeld: boolean;
+    instantCharge: number;
+    instantLeft: number;
+    events: { onInstant(charge: number, active: boolean): void };
+  };
+};
 const decimal = (page: Page) => page.locator('#decimal');
 
 test('loads the title screen with fonts and a painted canvas', async ({ page }) => {
@@ -106,12 +118,44 @@ test.describe('keyboard', () => {
     expect(best).toBeGreaterThan(0);
     await expect(page.locator('#best')).not.toHaveText('0');
 
-    await page.waitForTimeout(600);
+    // The vase has to finish breaking before a restart is accepted.
+    await page.waitForTimeout(1100);
     await page.keyboard.press('Space');
     await expect(overlay(page)).toBeHidden();
 
     await page.reload();
     await expect(page.locator('#best')).toHaveText(/^0\.\d{4}/);
+  });
+
+  test('Shift does nothing until Instant is charged, then stops time', async ({ page }) => {
+    await page.goto('/?debug');
+    await page.keyboard.press('Space');
+    const button = page.locator('#instant');
+    await expect(button).toBeVisible();
+    await expect(button).toHaveAttribute('aria-disabled', 'true');
+    await page.keyboard.press('ShiftLeft');
+    expect(await page.evaluate(() => (window as unknown as Debug).zeno.instantLeft)).toBe(0);
+
+    await page.evaluate(() => {
+      const z = (window as unknown as Debug).zeno;
+      z.instantCharge = 1;
+      z.events.onInstant(1, false);
+    });
+    await expect(button).toHaveClass(/ready/);
+    await expect(button).toHaveAttribute('aria-disabled', 'false');
+    await page.keyboard.press('ShiftLeft');
+    await expect(button).toHaveClass(/active/);
+    expect(await page.evaluate(() => (window as unknown as Debug).zeno.instantLeft)).toBeGreaterThan(0);
+    await expect(button).not.toHaveClass(/active/, { timeout: 3000 });
+  });
+
+  test('with reduced motion, the vase cracks but does not fly apart', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await page.keyboard.press('Space');
+    await expect(overlay(page)).toContainText('The tortoise wins', { timeout: 10_000 });
+    await expect(page.locator('#overlay .card')).not.toHaveClass(/after-shatter/);
+    await expect(page.locator('#overlay .card')).toBeVisible();
   });
 
   test('M mutes, and the choice survives a reload', async ({ page }) => {
@@ -156,7 +200,6 @@ test.describe('touch', () => {
     );
   }
 
-  type Debug = { zeno: { state: string; onGround: boolean; duckHeld: boolean } };
   const player = (page: Page) =>
     page.evaluate(() => {
       const z = (window as unknown as Debug).zeno;
@@ -177,6 +220,23 @@ test.describe('touch', () => {
     await touch(page, 'pointerdown', 0.8, 2);
     expect(await player(page)).toMatchObject({ onGround: false });
     await touch(page, 'pointerup', 0.8, 2);
+  });
+
+  test('the Instant button stops time without making Achilles jump', async ({ page }) => {
+    await page.goto('/?debug');
+    await page.locator('#stage').tap();
+    await page.evaluate(() => {
+      const z = (window as unknown as Debug).zeno;
+      z.instantCharge = 1;
+      z.events.onInstant(1, false);
+    });
+    await page.locator('#instant').tap();
+    const z = await page.evaluate(() => {
+      const z = (window as unknown as Debug).zeno;
+      return { instantLeft: z.instantLeft, onGround: z.onGround };
+    });
+    expect(z.instantLeft).toBeGreaterThan(0);
+    expect(z.onGround).toBe(true);
   });
 
   test('shows the touch zones', async ({ page }) => {

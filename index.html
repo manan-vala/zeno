@@ -16,7 +16,7 @@
           <span class="subtitle">Achilles &amp; the Tortoise</span>
         </div>
         <div class="actions">
-          <span class="hint"><kbd>Space</kbd> jump <kbd>↓</kbd> duck <kbd>P</kbd> pause</span>
+          <span class="hint"><kbd>Space</kbd> jump <kbd>↓</kbd> duck <kbd>Shift</kbd> instant <kbd>P</kbd> pause</span>
           <button id="mute" class="pill" type="button" aria-pressed="false">Sound on</button>
         </div>
       </header>
@@ -24,6 +24,10 @@
       <main class="stage" id="stage">
         <canvas id="screen" aria-label="Zeno game"></canvas>
         <div id="toast" class="toast" aria-live="polite"></div>
+        <button id="instant" class="instant" type="button" aria-disabled="true">
+          <span class="instant-fill" aria-hidden="true"></span>
+          <span class="instant-label">Instant</span>
+        </button>
         <div class="zones" aria-hidden="true">
           <span class="zone zone-duck">Hold to duck</span>
           <span class="zone zone-jump">Tap to jump</span>
